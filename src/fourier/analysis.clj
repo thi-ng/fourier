@@ -7,7 +7,7 @@
 
 (defn bandwidth
   "Computes the bandwidth of single bin for the given sample rate and window size."
-  [windowsize rate] (double (/ rate windowsize)))
+  ^double [windowsize rate] (/ rate windowsize))
 
 (def octaves
   "Computes the number of octaves for the given sample rate, window size and
@@ -45,11 +45,11 @@
           :default (int (Math/round (* windowsize (/ freq rate)))))))
         
 (defn band-average
-  [windowsize rate spectrum low high bandwidth]
+  [spectrum windowsize rate low high bandwidth]
   (let [l (freq->bin low windowsize rate bandwidth)
         h (freq->bin high windowsize rate bandwidth)
         bw (inc (- h l))]
-    (/ (reduce + (take bw (drop l spectrum))) bw)))
+    (/ (apply + (take bw (drop l spectrum))) bw)))
 
 (defn log-amp [amp logbase]
   (let[log (Math/log logbase)]
@@ -68,7 +68,7 @@
 (def normalize
   (memoize (fn[n] (repeat n (/ 1.0 n)))))
   
-(defn fft->spectrum
+(defn complex-magnitude
   [fft]
   (loop[spec [] fft fft]
     (let[[r i] (take 2 fft)]
@@ -103,31 +103,35 @@
             o (/ 1.0 (* theta n))] 
         (map #(Math/exp (* -0.5 (Math/pow (* (- % n) o) 2))) (range windowsize))))))
 
-(defn apply-window
-  [window-fn windowsize samples]
-  (pmap * samples (window-fn windowsize)))
+(defn amplify
+  [coll ampcoll]
+  (pmap * coll ampcoll))
 
+(defn- spectrum-seq*
+  ([fft window windowsize pipeline samples]
+    (lazy-seq
+      (let [slice (take windowsize samples)
+            n (count slice)]
+        (if (pos? n)
+          (let [buf (float-array windowsize (amplify slice window))
+                _ (.realForward fft buf)
+                spec (pipeline (complex-magnitude buf))]
+            (cons spec
+                  (spectrum-seq* fft window windowsize pipeline (drop windowsize samples)))))))))
 
 (defn spectrum-seq
-  ([window-fn windowsize samples] (spectrum-seq (FloatFFT_1D. windowsize) window-fn windowsize samples))
-  ([fft window-fn windowsize samples]
-    (lazy-seq
-      (let [ws (take windowsize samples)
-            n (count ws)]
-        (if (pos? n)
-          (let [buf (float-array
-                      (apply-window window-fn windowsize
-                        (if (< n windowsize)
-                          (concat ws (repeat (- windowsize n) 0.0))
-                          ws)))]
-            (.realForward fft buf)
-            (cons (fft->spectrum buf)
-                  (spectrum-seq fft window-fn windowsize (drop windowsize samples)))))))))
+  [& {:keys[window-fn windowsize pipeline samples]
+    :or {window-fn rect
+         windowsize 1024
+         pipeline identity}}]
+  (spectrum-seq*
+    (FloatFFT_1D. windowsize)
+    (window-fn windowsize)
+    windowsize pipeline samples))
 
-(defn spectrum-octaves
-  [windowsize rate bwidth octaves bands-per-octave spectrum]
-  (map
-    (fn[{:keys[low high]}]
-      (band-average windowsize rate spectrum low high bwidth))
-    (octave-bands rate octaves bands-per-octave)))
-
+(defn spectrum-bands
+  [spectrum windowsize rate bands]
+  (let[bw (bandwidth windowsize rate)]
+    (map
+      (fn[{:keys[low high]}] (band-average spectrum windowsize rate low high bw))
+      bands)))
