@@ -21,12 +21,12 @@
       (.start (Thread. #(doto player (.play len) (.close))))
       (doto player (.play len) (.close)))))
 
-(defn mp3-frame-seq
+(defn mp3-frames
   ([path]
     (let [stream (io/input-stream path)
           bits (Bitstream. stream)
           decoder (Decoder.)]
-      (mp3-frame-seq bits decoder)))
+      (mp3-frames bits decoder)))
   ([bits decoder]
     (lazy-seq
       (if-let [header (.readFrame bits)]
@@ -34,14 +34,14 @@
              len (.getBufferLength buf)
              frame (take len (.getBuffer buf))]
           (.closeFrame bits)
-          (cons frame (mp3-frame-seq bits decoder)))
+          (cons frame (mp3-frames bits decoder)))
         (.close bits)))))
 
-(defn sample-seq
-  ([frames] (sample-seq (first frames) (rest frames)))
+(defn mp3-samples
+  ([frames] (mp3-samples (first frames) (rest frames)))
   ([curr frames]
     (lazy-seq
       (if-let [f (first curr)]
-        (cons (/ f 32768.0) (sample-seq (rest curr) frames))
+        (cons (/ f 32768.0) (mp3-samples (rest curr) frames))
         (when-let [n (first frames)]
-          (sample-seq n (rest frames)))))))
+          (mp3-samples n (rest frames)))))))

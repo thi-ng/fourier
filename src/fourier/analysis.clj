@@ -6,14 +6,16 @@
 (def ^:const TWO_PI (* 2 Math/PI))
 
 (defn bandwidth
-  "Computes the bandwidth of single bin for the given sample rate and window size."
-  ^double [windowsize rate] (/ rate windowsize))
+  "Computes the bandwidth of single bin for the given
+  window size and sample rate."
+  ^double [windowsize rate] (/ (double rate) windowsize))
 
 (def octaves
-  "Computes the number of octaves for the given sample rate, window size and
-  desired minimum bandwidth. :bandwidth defaults to result of bandwidth fn."
+  "Computes the number of octaves for the given :rate, :windowsize and
+  desired minimum :bandwidth. The latter defaults to result of
+  (bandwidth windowsize rate)."
   (memoize
-    (fn [& {windowsize :window minbw :bandwidth rate :rate
+    (fn [& {windowsize :windowsize minbw :bandwidth rate :rate
             :or {windowsize 1024 rate 44100}}]
       (let [minbw (if (nil? minbw) (bandwidth windowsize rate) minbw)]
         (loop [n rate octaves 1]
@@ -23,6 +25,12 @@
               (recur n (inc octaves)))))))))
 
 (def octave-bands
+  "Computes & memoizes a lazy seq of frequency bands for the given sample rate,
+  number of octaves and bands per octave. Each band is a map with 4 keys:
+  :low lowest freq in band
+  :high highest freq in band
+  :center center freq of band
+  :width band width"
   (memoize
     (fn [rate octaves sub-bands]
       (let[nyquist (/ rate 2.0)]
@@ -32,31 +40,59 @@
                  (let[invo (- octaves o)
                       low (if (zero? o) 0.0 (/ nyquist (Math/pow 2.0 invo)))
                       high (/ nyquist (Math/pow 2.0 (dec invo)))
-                      bw (/ (- high low) sub-bands)]
+                      bw (/ (- high low) sub-bands)
+                      bw2 (* 0.5 bw)]
                    (for[b (range sub-bands)]
-                     {:low (+ low (* b bw)) :high (+ low (* (inc b) bw)) :bandwidth bw})))
+                     (let[l (+ low (* b bw))]
+                       {:low l :high (+ l bw) :center (+ l bw2) :width bw}))))
                (range octaves)))))))
+
+(defn freq->band
+  ([freq bands] (freq->band freq bands 0))
+  ([freq bands id] 
+    (if-let[{:keys[low high]} (first bands)]
+      (if (<= low freq high) id
+        (recur freq (rest bands) (inc id))))))
+
+(defn band->freq
+  [id bands]
+  (:center (nth bands id)))
 
 (defn freq->bin
   [freq windowsize rate bandwidth]
   (let [bw (/ bandwidth 2.0)]
     (cond (< freq bw) 0
           (> freq (- (/ rate 2.0) bw)) (dec (int (/ windowsize 2)))
-          :default (int (Math/round (* windowsize (/ freq rate)))))))
-        
+          :default (int (Math/round (* windowsize (/ (double freq) rate)))))))
+
+(defn bin->freq
+  [bin windowsize rate bandwidth]
+  (cond (= bin 0) (* 0.25 bandwidth)
+        (>= bin (/ windowsize 2)) (- (/ rate 2) (* 0.25 bandwidth))
+        :default (* bin bandwidth)))
+
 (defn band-average
   [spectrum windowsize rate low high bandwidth]
   (let [l (freq->bin low windowsize rate bandwidth)
         h (freq->bin high windowsize rate bandwidth)
-        bw (inc (- h l))]
-    (/ (apply + (take bw (drop l spectrum))) bw)))
+        bins (inc (- h l))]
+    (/ (apply + (take bins (drop l spectrum))) bins)))
 
-(defn log-amp [amp logbase]
-  (let[log (Math/log logbase)]
-    (fn [x] (* (/ (Math/log (inc x)) log) amp))))
+(defn ^double linear->db
+  ([^double x] (* 10.0 (Math/log10 x)))
+  ([^double offset ^double x] (+ (* 10.0 (Math/log10 x)) offset)))
 
-(defn linear-amp [amp]
-  (fn [x] (* x amp)))
+(defn ^double db->linear
+  ([^double x] (Math/pow 10 (* 0.1 x)))
+  ([^double offset ^double x] (Math/pow 10 (* 0.1 (- x offset)))))
+
+(defn ^double linear-delta->db
+  [^double x]
+  (if (pos? x)
+    (Math/abs (linear->db x))
+    (if (neg? x)
+      (linear->db (Math/abs x))
+      0.0)))
 
 (defn equalize
   [amp]
@@ -67,16 +103,19 @@
 
 (def normalize
   (memoize (fn[n] (repeat n (/ 1.0 n)))))
-  
-(defn complex-magnitude
-  [fft]
-  (loop[spec [] fft fft]
+
+(defn magnitude
+  [fft windowsize]
+  (loop[spec [] fft fft n (/ 1.0 windowsize)]
     (let[[r i] (take 2 fft)]
       (if (nil? r) spec
-        (recur (conj spec (Math/sqrt (+ (* r r) (* i i))))
-               (drop 2 fft))))))
+        (recur (conj spec (* n (+ (* r r) (* i i))))
+               (drop 2 fft)
+               n)))))
 
-(def rect (memoize (fn[windowsize] (repeat windowsize 1.0))))
+(def dirichlet
+  (memoize
+    (fn[windowsize] (repeat windowsize 1.0))))
 
 (def hanning
   (memoize
@@ -96,32 +135,39 @@
       (let [n (/ 2.0 (dec windowsize))] 
         (map #(let[x (* PI (- (* n %) 1.0))] (/ (Math/sin x) x)) (range windowsize))))))
 
-(defn gauss [theta]
+(defn gauss [sigma]
   (memoize
     (fn[windowsize]
       (let [n (/ (dec windowsize) 2.0)
-            o (/ 1.0 (* theta n))] 
-        (map #(Math/exp (* -0.5 (Math/pow (* (- % n) o) 2))) (range windowsize))))))
+            o (/ 1.0 (* sigma n))] 
+        (map #(Math/exp (* -0.5 (Math/pow (* (- % n) o) 2.0))) (range windowsize))))))
 
 (defn amplify
-  [coll ampcoll]
-  (pmap * coll ampcoll))
+  [coll amp]
+  (pmap * coll amp))
+
+(defn map-series
+  [f & colls]
+  (apply map (fn[& slices] (apply pmap f slices)) colls))
+
+(defn threshold
+  [t minv x] (if (>= x t) x minv))
 
 (defn- spectrum-seq*
-  ([fft window windowsize pipeline samples]
+  ([^FloatFFT_1D fft window windowsize pipeline samples]
     (lazy-seq
       (let [slice (take windowsize samples)
             n (count slice)]
         (if (pos? n)
           (let [buf (float-array windowsize (amplify slice window))
                 _ (.realForward fft buf)
-                spec (pipeline (complex-magnitude buf))]
+                spec (pipeline (magnitude buf windowsize))]
             (cons spec
                   (spectrum-seq* fft window windowsize pipeline (drop windowsize samples)))))))))
 
 (defn spectrum-seq
   [& {:keys[window-fn windowsize pipeline samples]
-    :or {window-fn rect
+    :or {window-fn dirichlet
          windowsize 1024
          pipeline identity}}]
   (spectrum-seq*
@@ -135,3 +181,20 @@
     (map
       (fn[{:keys[low high]}] (band-average spectrum windowsize rate low high bw))
       bands)))
+
+(defn derivative
+  ([slices] (derivative (repeat Double/NEGATIVE_INFINITY) slices))
+  ([prev more]
+    (lazy-seq
+      (let[curr (first more)]
+        (if (and prev curr)
+          (cons (pmap (fn[c p]
+                        (if (Double/isInfinite c)
+                          (if (Double/isInfinite p)
+                            c
+                            -100)
+                          (if (Double/isInfinite p)
+                            100
+                            (- c p))))
+                        curr prev)
+                (derivative curr (rest more))))))))

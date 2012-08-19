@@ -1,23 +1,36 @@
 (ns fourier.viz
   (:require
+    [fourier.analysis :as ana]
     [piksel.core :as pix])
   (:import
     [java.awt Graphics2D Color]
     [java.awt.image BufferedImage]))
 
+(defn resource-stream
+  [name]
+  (->
+    (Thread/currentThread)
+    (.getContextClassLoader)
+    (.getResourceAsStream (str "fourier/" name))))
+
+(def gradients
+  (into {} 
+    (map (fn[id]
+           [(keyword id)
+            ^BufferedImage (pix/load-image (resource-stream (str id ".png")))])
+         ["db.rainbow" "db.rainbow2" "db.delta" "db.delta2"])))
+
+(defn line
+  [gfx x1 y1 x2 y2 col]
+  (.setPaint gfx col)
+  (.drawLine gfx x1 y1 x2 y2))
+
 (defn ^:static draw-stereo-sample
   [gfx [l r] x yl yr h col-l col-r]
   (let [l (+ (* l h) yl)
         r (+ (* r h) yr)]
-    (.setPaint gfx col-l)
-    (.drawLine gfx x l x yl)
-    (.setPaint gfx col-r)
-    (.drawLine gfx x r x yr)))
-
-(defn draw-ruler
-  [gfx x h]
-  (.setPaint gfx Color/BLACK)
-  (.drawLine gfx x 0 x h))
+    (line x l x yl col-l)
+    (line x r x yr col-r)))
 
 (defn draw-waveform
   [img frame]
@@ -28,7 +41,12 @@
         (draw-stereo-sample gfx p x)
         (recur (rest pairs) (inc x))))))
 
-(defn ^BufferedImage render-waveform
+(defn draw-ruler
+  [gfx width height step col]
+  (doseq[x (range 0 width step)]
+    (line gfx x 0 x height col)))
+
+(defn ^BufferedImage draw-waveform
   [samples skip w h]
   (let [img (pix/make-image w h)
         gfx (.createGraphics img)
@@ -43,36 +61,50 @@
         bg (pix/linear-gradient :start [0 0] :end [0 h] :fractions [0 1.0] :colors [[0 0 0 0] [0 0 0 96]])]
     (doto gfx (.setPaint bg) (.fillRect 0 0 w h))
     (loop[samples samples x 0]
-      (when (zero? (rem x tx)) (draw-ruler gfx x h))
+      (when (zero? (rem x tx)) (line gfx x 0 x h Color/BLACK))
       (if-let[f (take 2 samples)]
         (when (and (= (count f) 2) (< x w))
           (draw-stereo-sample gfx f x yl yr h4 gl gr)
           (recur (drop skip samples) (inc x)))))
     img))
 
-(defn ^BufferedImage render-spectrum-mono
-  [spec amp-fn width]
+(defn ^BufferedImage draw-power
+  [spec width height f rate windowsize]
+  (let [img (pix/make-image width height)
+        gfx (.createGraphics img)
+        secs (/ rate windowsize)]
+    (loop [vol (map #(reduce + %) (take width spec)) x 0]
+      (when-let [v (first vol)]
+        (when (zero? (rem x 100)) (prn x))
+        (line gfx x height x (f height v) Color/RED)
+        (recur (rest vol) (inc x))))
+    (draw-ruler gfx width height secs (Color. 1.0 1.0 1.0 0.5))
+    img))
+
+(defn ^BufferedImage draw-spectrum-mono
+  [spec & {:keys[shader width rate windowsize]
+           :or {rate 44100 windowsize 1024}}]
   (let [height (count (first spec))
         img (pix/make-image width height)
-        pixels (.getRGB img 0 0 width height nil 0 width)]
+        gfx (.createGraphics img)
+        pixels (.getRGB img 0 0 width height nil 0 width)
+        secs (/ rate windowsize)]
     (loop[spec (take width spec) x 0]
       (when (zero? (rem x 100)) (prn x))
       (if-let [s (first spec)]
-        (do
-          (let [peak (reduce max s)]
-            (doall
-              (map (fn[f y]
-                     (let[ff (amp-fn f)]
-                       (if (= f peak)
-                         (pix/blend-pixel pixels x y width 255 255 255 1.0 pix/blend-replace)
-                         (pix/blend-pixel pixels x y width 0.0 ff 0.0 1.0 pix/blend-replace))))
-                   s (range height)))
-            (recur (rest spec) (inc x))))
+        (let [peak (reduce max s)]
+          (dorun
+            (map (fn[f y]
+                   (let[[a r g b] (shader f)]
+                     (pix/blend-pixel pixels x y width r g b a pix/blend-replace)))
+                 s (range height)))
+          (recur (rest spec) (inc x)))
         (do
           (.setRGB img 0 0 width height pixels 0 width)
+          (draw-ruler gfx width height secs (Color. 1.0 1.0 1.0 0.5))
           img)))))
 
-(defn ^BufferedImage render-spectrum-stereo
+(defn ^BufferedImage draw-spectrum-stereo
   [spec-l spec-r amp-fn width]
   (let [height (count (first spec-l))
         img (pix/make-image width height)
@@ -82,7 +114,7 @@
       (let [sl (first spec-l) sr (first spec-r)]
         (if (and sl sr)
           (do
-            (doall
+            (dorun
               (map (fn[l r y]
                      (let[l (amp-fn l)
                           r (amp-fn r)]
@@ -92,3 +124,50 @@
           (do
             (.setRGB img 0 0 width height pixels 0 width)
             img))))))
+
+(defn clip [x mi mx] (max mi (min mx x)))
+
+(defn shade-db
+  [^BufferedImage img]
+  (let[w (.getWidth img)
+       lut (.getRGB img 0 0 w 1 nil 0 w)
+       s (/ w -100.0)
+       w (dec w)]
+    (fn[x]
+      (pix/unpack-argb
+        (aget
+          lut
+          (clip (int (* s (if (Double/isInfinite x) -1000 x))) 0 w))))))
+
+(defn shade-db-delta
+  [^BufferedImage img]
+  (let[w (.getWidth img)
+       lut (.getRGB img 0 0 w 1 nil 0 w)
+       w2 (/ w 2)
+       w (dec w)
+       s (/ w2 100.0)]
+    (fn[x]
+      (pix/unpack-argb
+        (aget
+          lut
+          (clip (int (+ w2 (* s (if (or (Double/isInfinite x)
+                                        (Double/isNaN x))
+                                  0 x))))
+                0 w))))))
+        
+(defn shade-linear
+  [^BufferedImage img amp]
+  (let[w (.getWidth img)
+       lut (.getRGB img 0 0 w 1 nil 0 w)
+       s (/ w amp)
+       w (dec w)]
+    (fn[x] (pix/unpack-argb (aget lut (- w (clip (int (* s x)) 0 w)))))))
+
+(defn shade-linear-delta
+  [^BufferedImage img amp]
+  (let[w (.getWidth img)
+       lut (.getRGB img 0 0 w 1 nil 0 w)
+       w2 (/ w 2)
+       s (/ w2 amp)
+       w (dec w)]
+    (fn[x] (pix/unpack-argb (aget lut (clip (int (+ w2 (* s x))) 0 w))))))
