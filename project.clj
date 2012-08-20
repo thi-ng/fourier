@@ -9,7 +9,7 @@
                  [com.googlecode.soundlibs/tritonus-share "0.3.7-1"]
                  [net.sourceforge.jtransforms/jtransforms "2.4.0"]
                  [com.postspectacular/piksel "0.1.0-SNAPSHOT"]]
-  :repositories {"nexus-3rd" {:url "http://50.17.220.26:8089/nexus/content/repositories/thirdparty/" :creds :gpg}
-                 "nexus-releases" {:url "http://50.17.220.26:8089/nexus/content/repositories/postspectacular-releases/" :creds :gpg}
+  :repositories {"nexus-3rd" {:url "http://50.17.220.26:8089/nexus/content/repositories/thirdparty/" :creds :gpg :snapshots false}
+                 "nexus-releases" {:url "http://50.17.220.26:8089/nexus/content/repositories/postspectacular-releases/" :creds :gpg :snapshots false}
                  "nexus-snapshots" {:url "http://50.17.220.26:8089/nexus/content/repositories/postspectacular-snapshots/" :creds :gpg}}
   :jvm-opts ["-Xms512m" "-Xmx1g"])
