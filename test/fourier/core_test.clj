@@ -18,13 +18,14 @@
   (let [props (mp3-file-props (io/file path))
         rate (:mp3.frequency.hz props)
         chan (:mp3.channels props)
+        _ (prn props)
         windowsize (* 2 bins)
         len (* chan width windowsize)
         _ (prn "reading samples" len)
         samples (-> path mp3-frames mp3-samples)
         samples (take len (take-nth 2 (drop (* dropin chan rate) samples)))
         _ (prn "finding peak...")
-        peak (reduce (fn[^double p ^double x] (max p (Math/abs x))) 0.0 samples)
+        peak 1.0;(reduce (fn[^double p ^double x] (max p (Math/abs x))) 0.0 samples)
         normf (/ 1.0 peak)
         _ (prn "peak" peak "normf" normf)
         samples (map #(* % normf) samples)
@@ -77,17 +78,19 @@
     ;"/Users/toxi/Music/iTunes/iTunes Media/Music/Ludovico Einaudi/Unknown Album/Due Tramonti.mp3"
     ;"/Users/toxi/Music/iTunes/iTunes Media/Music/kieran/crystalmafia/Some girls wander by mistake.mp3"
     ;"/Users/toxi/Music/iTunes/iTunes Media/Music/kieran/beautiful hesitations/adorelaura.mp3"
-    "/Users/toxi/Music/iTunes/iTunes Media/Music/Unknown Artist/Unknown Album/marceldettmann_dawning.mp3"
+    ;"/Users/toxi/Music/iTunes/iTunes Media/Music/Unknown Artist/Unknown Album/marceldettmann_dawning.mp3"
+    "/Users/toxi/Music/iTunes/iTunes Media/Music/Unknown Artist/Unknown Album (8_26_2007 1_49_44 PM)/17 Track 17.mp3"
     ;"../lcom/dev/scmdub2.mp3"
     ;"../lcom/dev/sines.mp3"
-    "spec-dett.png"
-    :dropin 140
+    ;"../lcom/dev/light.mp3"
+    "spec-track17.png"
+    :dropin 0
     :bins 512
     :sub-bands 12
     :equalizer-fn (equalize -0.04)
     ;:window-fn hamming
     :window-fn (gauss 0.4)
-    :width 2048
+    :width 2584
     ))
 
 ;(def spec (test-spec))

@@ -19,7 +19,16 @@
         {:keys[len async] :or {len 0x7fffffff async true}} (apply hash-map opts)]
     (if async
       (.start (Thread. #(doto player (.play len) (.close))))
-      (doto player (.play len) (.close)))))
+      (doto player (.play len) (.close)))
+    player))
+
+(defn player-position
+  [^Player player]
+  (.getPosition player))
+
+(defn player-done?
+  [^Player player]
+  (.isComplete player))
 
 (defn mp3-frames
   ([path]

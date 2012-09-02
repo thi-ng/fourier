@@ -3,7 +3,7 @@
     [fourier.analysis :as ana]
     [piksel.core :as pix])
   (:import
-    [java.awt Graphics2D Color]
+    [java.awt Graphics Graphics2D Color]
     [java.awt.image BufferedImage]))
 
 (defn resource-stream
@@ -21,35 +21,30 @@
          ["db.rainbow" "db.rainbow2" "db.delta" "db.delta2"])))
 
 (defn line
-  [gfx x1 y1 x2 y2 col]
+  [^Graphics gfx x1 y1 x2 y2 col]
   (.setPaint gfx col)
   (.drawLine gfx x1 y1 x2 y2))
 
-(defn ^:static draw-stereo-sample
-  [gfx [l r] x yl yr h col-l col-r]
+(defn draw-mono-sample
+  [^Graphics gfx s x y h col]
+  (line gfx x (+ (* s h) y) x y col))
+
+(defn draw-stereo-sample
+  [^Graphics gfx [l r] x yl yr h col-l col-r]
   (let [l (+ (* l h) yl)
         r (+ (* r h) yr)]
-    (line x l x yl col-l)
-    (line x r x yr col-r)))
-
-(defn draw-waveform
-  [img frame]
-  (let [gfx (.createGraphics img)
-        pairs (partition 2 frame)]
-    (loop[pairs pairs x 0]
-      (when-let [p (first pairs)]
-        (draw-stereo-sample gfx p x)
-        (recur (rest pairs) (inc x))))))
+    (line gfx x l x yl col-l)
+    (line gfx x r x yr col-r)))
 
 (defn draw-ruler
-  [gfx width height step col]
+  [^Graphics gfx width height step col]
   (doseq[x (range 0 width step)]
     (line gfx x 0 x height col)))
 
 (defn ^BufferedImage draw-waveform
   [samples skip w h]
-  (let [img (pix/make-image w h)
-        gfx (.createGraphics img)
+  (let [^BufferedImage img (pix/make-image w h)
+        ^Graphics gfx (.createGraphics img)
         sh (/ skip 2.0)
         tx (int (/ 44100 (/ skip 2)))
         yl (int (* h 0.25))
@@ -62,16 +57,16 @@
     (doto gfx (.setPaint bg) (.fillRect 0 0 w h))
     (loop[samples samples x 0]
       (when (zero? (rem x tx)) (line gfx x 0 x h Color/BLACK))
-      (if-let[f (take 2 samples)]
-        (when (and (= (count f) 2) (< x w))
-          (draw-stereo-sample gfx f x yl yr h4 gl gr)
+      (if-let[s (take 2 samples)]
+        (when (and (= (count s) 2) (< x w))
+          (draw-stereo-sample gfx s x yl yr h4 gl gr)
           (recur (drop skip samples) (inc x)))))
     img))
 
 (defn ^BufferedImage draw-power
   [spec width height f rate windowsize]
-  (let [img (pix/make-image width height)
-        gfx (.createGraphics img)
+  (let [^BufferedImage img (pix/make-image width height)
+        ^Graphics gfx (.createGraphics img)
         secs (/ rate windowsize)]
     (loop [vol (map #(reduce + %) (take width spec)) x 0]
       (when-let [v (first vol)]
@@ -85,8 +80,8 @@
   [spec & {:keys[shader width rate windowsize]
            :or {rate 44100 windowsize 1024}}]
   (let [height (count (first spec))
-        img (pix/make-image width height)
-        gfx (.createGraphics img)
+        ^BufferedImage img (pix/make-image width height)
+        ^Graphics gfx (.createGraphics img)
         pixels (.getRGB img 0 0 width height nil 0 width)
         secs (/ rate windowsize)]
     (loop[spec (take width spec) x 0]
