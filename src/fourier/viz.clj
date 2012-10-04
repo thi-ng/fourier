@@ -77,15 +77,16 @@
     img))
 
 (defn ^BufferedImage draw-spectrum-mono
-  [spec & {:keys[shader width rate windowsize]
-           :or {rate 44100 windowsize 1024}}]
+  [spec & {:keys[shader width rate windowsize progress-fn progress-step]
+           :or {rate 44100 windowsize 1024
+                progress-step 100 progress-fn identity}}]
   (let [height (count (first spec))
         ^BufferedImage img (pix/make-image width height)
         ^Graphics gfx (.createGraphics img)
         pixels (.getRGB img 0 0 width height nil 0 width)
         secs (/ rate windowsize)]
     (loop[spec (take width spec) x 0]
-      (when (zero? (rem x 100)) (prn x))
+      (when (zero? (rem x progress-step)) (progress-fn x))
       (if-let [s (first spec)]
         (let [peak (reduce max s)]
           (dorun
