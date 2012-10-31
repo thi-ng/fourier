@@ -4,7 +4,7 @@
   <groupId>com.postspectacular</groupId>
   <artifactId>fourier</artifactId>
   <packaging>jar</packaging>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.0</version>
   <name>fourier</name>
   <description>Audio analysis tools</description>
   <url>http://hg.postspectacular.com/fourier</url>
@@ -114,7 +114,25 @@
     <dependency>
       <groupId>com.postspectacular</groupId>
       <artifactId>piksel</artifactId>
-      <version>0.1.0-SNAPSHOT</version>
+      <version>0.1.2</version>
+    </dependency>
+    <dependency>
+      <groupId>org.clojure</groupId>
+      <artifactId>test.generative</artifactId>
+      <version>0.1.4</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.postspectacular</groupId>
+      <artifactId>macrochrono</artifactId>
+      <version>0.1.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>quil</groupId>
+      <artifactId>quil</artifactId>
+      <version>1.6.0</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 </project>
