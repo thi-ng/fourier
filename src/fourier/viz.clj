@@ -150,7 +150,7 @@
                                         (Double/isNaN x))
                                   0 x))))
                 0 w))))))
-        
+
 (defn shade-linear
   [^BufferedImage img amp]
   (let[w (.getWidth img)

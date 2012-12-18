@@ -49,7 +49,7 @@
 
 (defn freq->band
   ([freq bands] (freq->band freq bands 0))
-  ([freq bands id] 
+  ([freq bands id]
     (if-let[{:keys[low high]} (first bands)]
       (if (<= low freq high) id
         (recur freq (rest bands) (inc id))))))
@@ -120,35 +120,35 @@
 (def hanning
   (memoize
     (fn[windowsize]
-      (let [n (/ TWO_PI (dec windowsize))] 
+      (let [n (/ TWO_PI (dec windowsize))]
         (map #(* 0.5 (- 1.0 (Math/cos (* % n)))) (range windowsize))))))
 
 (def hamming
   (memoize
     (fn[windowsize]
-      (let [n (/ TWO_PI (dec windowsize))] 
+      (let [n (/ TWO_PI (dec windowsize))]
         (map #(- 0.54 (* 0.46 (Math/cos (* % n)))) (range windowsize))))))
 
 (def lanczos
   (memoize
     (fn[windowsize]
-      (let [n (/ 2.0 (dec windowsize))] 
+      (let [n (/ 2.0 (dec windowsize))]
         (map #(let[x (* PI (- (* n %) 1.0))] (/ (Math/sin x) x)) (range windowsize))))))
 
 (defn gauss [sigma]
   (memoize
     (fn[windowsize]
       (let [n (/ (dec windowsize) 2.0)
-            o (/ 1.0 (* sigma n))] 
+            o (/ 1.0 (* sigma n))]
         (map #(Math/exp (* -0.5 (Math/pow (* (- % n) o) 2.0))) (range windowsize))))))
 
 (defn amplify
   [coll amp]
-  (pmap * coll amp))
+  (map * coll amp))
 
 (defn map-series
   [f & colls]
-  (apply map (fn[& slices] (apply pmap f slices)) colls))
+  (apply map (fn[& slices] (apply map f slices)) colls))
 
 (defn threshold
   [t minv x] (if (>= x t) x minv))
@@ -198,3 +198,10 @@
                             (- c p))))
                         curr prev)
                 (derivative curr (rest more))))))))
+
+(defn normalize-samples
+  "Consumes entire seq and returns a lazy-seq of
+  normalized values (-1.0 .. +1.0) of `samples`."
+  [samples]
+  (let [normf (/ 1.0 (reduce (fn[^double p ^double x] (max p (if (pos? x) x (- x)))) 0.0 samples))]
+    (map #(* (double normf) (double %)) samples)))
